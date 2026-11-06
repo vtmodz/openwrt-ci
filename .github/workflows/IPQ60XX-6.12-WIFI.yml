@@ -2,8 +2,6 @@ name: IPQ60XX-6.12-WIFI
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: 0 19 * * *
 
 env:
   REPO_URL: https://github.com/LiBwrt/openwrt-6.x.git
@@ -14,7 +12,7 @@ env:
   CACHE_TOOLCHAIN: true
   UPLOAD_BIN_DIR: false
   FIRMWARE_RELEASE: true
-  FIRMWARE_TAG: IPQ60XX-6.12-WIFI
+  FIRMWARE_TAG: 360v6-libwrt
   TZ: Asia/Shanghai
 
 jobs:
@@ -70,6 +68,7 @@ jobs:
 
     - name: Generate Variables(生成变量)
       run: |
+        cp $CONFIG_FILE /tmp/want.config
         cp $CONFIG_FILE $OPENWRT_PATH/.config
         cd $OPENWRT_PATH
         make defconfig > /dev/null 2>&1
@@ -87,17 +86,18 @@ jobs:
         ccache: false
         mixkey: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}
         prefix: ${{ env.OPENWRT_PATH }}
-    
+
     - name: Install Feeds(安装feeds)
       run: |
         cd $OPENWRT_PATH
         ./scripts/feeds update -a
-        git clone --depth 1 https://github.com/sbwml/openwrt_pkgs.git package/new/custom
-        mv package/new/custom/luci-app-netspeedtest  package/new
-        mv package/new/custom/speedtest-cli package/new
+        # 网页测速插件不在 feeds 里，从上游单独取；取不到就跳过，不影响主流程
+        git clone --depth 1 https://github.com/sbwml/openwrt_pkgs.git package/new/custom || true
+        [ -d package/new/custom/luci-app-netspeedtest ] && mv package/new/custom/luci-app-netspeedtest package/new
+        [ -d package/new/custom/speedtest-cli ] && mv package/new/custom/speedtest-cli package/new
         rm -rf package/new/custom
         ./scripts/feeds install -a
-  
+
     - name: Load Custom Configuration(加载自定义配置)
       run: |
         [ -e files ] && mv files $OPENWRT_PATH/files
@@ -105,6 +105,36 @@ jobs:
         chmod +x $DIY_SCRIPT
         cd $OPENWRT_PATH
         $GITHUB_WORKSPACE/$DIY_SCRIPT
+
+    - name: Verify Packages(校验配置里的包是否都存在)
+      run: |
+        cd $OPENWRT_PATH
+        make defconfig > /dev/null 2>&1
+
+        # 不仅校验包，也校验 NSS / 内存档位这些关键选项
+        grep -E '^CONFIG_(PACKAGE_|NSS_|IPQ_MEM_PROFILE|ATH11K_MEM_PROFILE)' /tmp/want.config | grep '=y$' | sed 's/=y$//' | sort -u > /tmp/want.lst
+        grep -E '^CONFIG_(PACKAGE_|NSS_|IPQ_MEM_PROFILE|ATH11K_MEM_PROFILE)' .config           | grep '=y$' | sed 's/=y$//' | sort -u > /tmp/got.lst
+        MISSING=$(comm -23 /tmp/want.lst /tmp/got.lst || true)
+
+        if [ -z "$MISSING" ]; then
+          echo "✅ 配置里 $(wc -l < /tmp/want.lst) 个包全部存在，可以开始编译"
+          exit 0
+        fi
+
+        echo "================================================================"
+        echo "以下包在本次源码 / feeds 中不存在，已被 make defconfig 静默丢弃："
+        echo "----------------------------------------------------------------"
+        echo "$MISSING"
+        echo "================================================================"
+
+        # 语言包缺失不影响功能，只给警告；功能包缺失直接中止
+        CRITICAL=$(echo "$MISSING" | grep -v 'luci-i18n-' || true)
+        if [ -n "$CRITICAL" ]; then
+          echo "::error::缺少功能包，编译结果会不完整，已提前中止（未浪费编译时间）"
+          exit 1
+        fi
+
+        echo "⚠️ 只缺语言包，界面会显示英文，不影响功能，继续编译"
 
     - name: Download DL Package(下载DL软件包)
       run: |
@@ -165,14 +195,21 @@ jobs:
         artifacts: ${{ env.FIRMWARE_PATH }}/*
         body: |
           **This is OpenWrt Firmware for ${{ env.FIRMWARE_TAG }}**
-          ### 📒 固件信息(WIFI)
-          - 带WIFI带有线NSS的6.12内核固件
-          - 💻 这是 ${{ env.FIRMWARE_TAG }} 平台使用的 OpenWrt 固件
+
+          ### 📒 固件信息
+          - 设备：奇虎 360V6（IPQ6018 / 512MB RAM / 128MB NAND）
+          - 带 WIFI，带完整 NSS（有线 + 无线数据面卸载）
           - ⚽ 固件源码: ${{ env.REPO_URL }}
           - 💝 源码分支: ${{ env.REPO_BRANCH }}
-          - 🌐 默认地址: 192.168.1.1
-          - 🔑 默认密码: password
+          - 🌐 默认地址: 10.0.7.1
+          - 🔑 默认用户: root
+
           ### 🧊 固件版本
           - 固件内核版本：${{ env.VERSION_KERNEL }}
           - 固件编译前最后一次➦[主源码](${{ env.REPO_URL }})更新记录
           - ${{ env.VERSION_INFO }}
+
+          ### 📦 刷入说明
+          - 已有 OpenWrt 在跑：上传 `*-sysupgrade.bin` 升级
+          - 从 U-Boot 刷：上传 `*-squashfs-factory.ubi`
+          - 只有一个设备，不再包含其他机型的固件
