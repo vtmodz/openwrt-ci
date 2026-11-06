@@ -17,9 +17,11 @@ env:
 
 jobs:
   Build:
-    # 不要用 ubuntu-latest：2026-10-19 起它已迁移到 Ubuntu 26，
-    # OpenWrt 编译环境对版本敏感，固定 24.04 才能复现
-    runs-on: ubuntu-24.04
+    # 不能用 ubuntu-latest：2026-10-19 起它已迁移到 Ubuntu 26，
+    # immortalwrt 的 init_build_environment.sh 只认 18.04/20.04/22.04/24.04 的代号，
+    # 26 不在列表里会直接报 "Unsupported OS"。
+    # 选 22.04(jammy)：脚本有完整适配，GCC 10 兼容性最好。备选 24.04(noble)。
+    runs-on: ubuntu-22.04
 
     steps:
     - name: Check Server Performance(检查服务器性能)
