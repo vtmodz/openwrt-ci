@@ -8,11 +8,15 @@ LAN_IP='10.0.7.1'
 sed -i "s/192\.168\.1\.1/${LAN_IP}/g" package/base-files/files/bin/config_generate
 
 # ---------- 主机名 ----------
-sed -i "s/hostname='OpenWrt'/hostname='360V6'/" package/base-files/files/bin/config_generate
+# 25.12-nss 起上游默认值从 OpenWrt 改成 LibWrt，两种都匹配，
+# 否则 sed 匹配不到也不报错，主机名会静默保持 LibWrt
+sed -i -E "s/hostname='(OpenWrt|LibWrt)'/hostname='360V6'/" package/base-files/files/bin/config_generate
 
 # ---------- 时区 ----------
-sed -i "s/timezone='UTC'/timezone='CST-8'/" package/base-files/files/bin/config_generate
-sed -i "s/zonename='UTC'/zonename='Asia\/Shanghai'/" package/base-files/files/bin/config_generate
+# 25.12-nss 上游已经是 CST-8 / Asia/Shanghai，这两条现在是幂等的兜底，
+# 万一以后上游改回 UTC 仍然能生效
+sed -i -E "s/timezone='(UTC|GMT0)'/timezone='CST-8'/" package/base-files/files/bin/config_generate
+sed -i -E "s/zonename='(UTC|Etc\/UTC)'/zonename='Asia\/Shanghai'/" package/base-files/files/bin/config_generate
 
 # ---------- 插件默认关闭 ----------
 # 首次启动执行一次，之后脚本自动删除（OpenWrt 的 uci-defaults 机制）
