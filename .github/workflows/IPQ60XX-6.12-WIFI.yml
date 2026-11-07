@@ -3,6 +3,11 @@ name: IPQ60XX-6.12-WIFI
 on:
   workflow_dispatch:
 
+# 发 Release 必须显式要写权限。不写这段时 GITHUB_TOKEN 在 fork 仓库是只读，
+# ncipollo/release-action 创建 release 会 403 Resource not accessible by integration
+permissions:
+  contents: write
+
 env:
   REPO_URL: https://github.com/LiBwrt/LibWrt.git
   REPO_BRANCH: 25.12-nss
